@@ -1,0 +1,46 @@
+* Simple clojure application
+
+  This is very simple Clojure application developed with literate programming
+  principles. This project demonstrates a simple parser of text files alongside
+  a simple simple REST service to interact with the data.
+
+** Project setup
+
+  This project should require minimal structure and deps. We need a ~src~ and
+  ~test~ folder for our code. A ~resources~ folder for static assets like sample
+  input files and a ~dev~ folder for any supporting dev enviroment work.
+
+#+BEGIN_SRC bash :results silent
+mkdir -p src/simple_app
+mkdir -p test/simple_app
+mkdir -p dev
+mkdir -p resources
+#+END_SRC
+
+  For project deps we are going to use [[http://pedestal.io][Pedestal]] for the REST api portion of
+  things. This is my first go at using Pedestal so it should be fun. For testing
+  we are going to use the cognitect test runner.
+
+#+begin_src clojure :tangle deps.edn :results silent :eval no
+{:deps
+ {org.clojure/clojure {:mvn/version "1.10.1"}
+  io.pedestal/pedestal.service {:mvn/version "0.5.7"}
+  io.pedestal/pedestal.route {:mvn/version "0.5.7"}
+  io.pedestal/pedestal.jetty {:mvn/version "0.5.7"}
+  org.slf4j/slf4j-simple {:mvn/version "1.7.28"}}
+
+ :aliases
+ {:test
+  {:extra-paths ["test"]
+   :extra-deps {com.cognitect/test-runner
+                {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                 :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+   :main-opts ["-m" "cognitect.test-runner"]}}}
+#+end_src
+
+  And we need a ~.gitignore~ file.
+
+#+begin_src bash :tangle .gitignore :results silent :eval no
+.cpcache
+.nrepl-port
+#+end_src
