@@ -9,3 +9,9 @@
                                :gender "neutral"
                                :favorite-color "chartreuse"
                                :date-of-birth (java.util.Date.)})
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)

@@ -96,3 +96,147 @@ Success!
 {} - failed: (contains? % :date-of-birth) spec: :simple-app/record
 Success!
 #+end_example
+
+** Data parsing
+
+  This simple-app can injest data via input file from the command line. The only
+  relevant business logic worth testing here is a function that will take 1 at a
+  time from the input file and parse it into a map that we can validate with our
+  specs.
+
+#+begin_src clojure :tangle src/simple_app/record.clj :results silent
+(ns simple-app.record
+  (:require [clojure.spec.alpha :as s]))
+
+(defn parse [line] 
+  {})
+#+end_src
+
+  We start with a simple parse file that does nothing so we can write the tests
+  first.
+
+#+begin_src clojure :tangle test/simple_app/record_test.clj :results silent
+(ns simple-app.record-test
+  (:require [simple-app.record :as record]
+            [clojure.test :refer [deftest testing is]]))
+
+(deftest parse-test
+  (let [expected {:first-name "foo"
+                  :last-name "bar"
+                  :gender "neutral"
+                  :favorite-color "chartreuse"
+                  :date-of-birth (java.util.Date. "1/1/2020")}
+        pipe-format "foo | bar | neutral | chartreuse | 1/1/2020"
+        comma-format "foo, bar, neutral, chartreuse, 1/1/2020"
+        space-format "foo bar neutral chartreuse 1/1/2020"]
+
+    (testing "Pipe format"
+      (is (= (record/parse pipe-format) expected)))
+    (testing "Comma format"
+      (is (= (record/parse comma-format) expected)))
+    (testing "Space format"
+      (is (= (record/parse space-format) expected)))))
+#+end_src
+
+  Lets run the tests.
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Testing simple-app.record-test
+
+FAIL in (parse-test) (NO_SOURCE_FILE:16)
+Pipe format
+expected: (= (record/parse pipe-format) expected)
+  actual: (not (= {} {:first-name "foo", :last-name "bar", :gender "neutral", :favorite-color "chartreuse", :date-of-birth #inst "2020-01-01T08:00:00.000-00:00"}))
+
+FAIL in (parse-test) (NO_SOURCE_FILE:18)
+Comma format
+expected: (= (record/parse comma-format) expected)
+  actual: (not (= {} {:first-name "foo", :last-name "bar", :gender "neutral", :favorite-color "chartreuse", :date-of-birth #inst "2020-01-01T08:00:00.000-00:00"}))
+
+FAIL in (parse-test) (NO_SOURCE_FILE:20)
+Space format
+expected: (= (record/parse space-format) expected)
+  actual: (not (= {} {:first-name "foo", :last-name "bar", :gender "neutral", :favorite-color "chartreuse", :date-of-birth #inst "2020-01-01T08:00:00.000-00:00"}))
+
+Ran 1 tests containing 3 assertions.
+3 failures, 0 errors.
+#+end_example
+
+  Ok now we actually build our parse function.
+
+#+begin_src clojure :ns simple-app.record :tangle src/simple_app/record.clj :results silent
+(require '[clojure.string :as str])
+
+(defn parse
+  "Parses input line into a record entry map.
+  Handles 3 different input formats.
+    - Comma separated
+    - Pipe separated
+    - Space separated"
+  [line]
+  (-> (zipmap [:first-name :last-name :gender :favorite-color :date-of-birth]
+              (str/split line #",\s+|\s+\|\s+|\s+"))
+      (update :date-of-birth #(java.util.Date. %))))
+#+end_src
+
+  Tests pass now :D
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+: 
+: Testing simple-app.record-test
+: 
+: Ran 1 tests containing 3 assertions.
+: 0 failures, 0 errors.
+
+  Now lets write a simple program that puts it all together.
+
+#+begin_src clojure :tangle src/simple_app/core.clj :results silent
+(ns simple-app.core
+  (:require [simple-app.record :as record]
+            [clojure.java.io :as io]))
+
+(defn process-file-by-lines
+  "Process file reading it line-by-line
+  https://stackoverflow.com/questions/25948813/read-line-by-line-for-big-files"
+  ([file]
+   (process-file-by-lines file identity))
+  ([file process-fn]
+   (process-file-by-lines file process-fn println))
+  ([file process-fn output-fn]
+   (with-open [rdr (io/reader file)]
+     (doseq [line (line-seq rdr)]
+       (output-fn
+         (process-fn line))))))
+
+(defn -main [input-file]
+  (process-file-by-lines input-file record/parse))
+#+end_src
+
+  Lets create a sample input file to test with
+
+#+begin_src text :tangle resources/sample-file-1 :results silent :eval no
+foo | bar | neutral | chartreuse | 1/1/2020
+Luke, Skywalker, male, blue, 1/1/0
+SpongeBob Squarepants none? pinaple-yellow 5/1/1999
+#+end_src
+
+  We can now run a program that for now just prints each line we parse.
+
+#+BEGIN_SRC bash
+clojure -m simple-app.core resources/sample-file-1
+#+END_SRC
+
+#+RESULTS:
+| {:first-name foo       | :last-name bar         | :gender neutral | :favorite-color chartreuse     | 2020-01-01T08:00:00.000-00:00 |
+| {:first-name Luke      | :last-name Skywalker   | :gender male    | :favorite-color blue           | 2000-01-01T08:00:00.000-00:00 |
+| {:first-name SpongeBob | :last-name Squarepants | :gender none?   | :favorite-color pinaple-yellow | 1999-05-01T07:00:00.000-00:00 |
