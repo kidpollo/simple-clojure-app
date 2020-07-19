@@ -44,3 +44,55 @@ mkdir -p resources
 .cpcache
 .nrepl-port
 #+end_src
+
+** The data model
+
+  I like to start with data modeling and design desitions as early as possible.
+  For this app we are goint ro handle records of a simple shape but its still
+  worth having clojure specs to validate data going through any system.
+
+#+begin_src clojure :tangle src/simple_app/spec.clj :results silent
+(ns simple-app.specs
+  (:require [clojure.spec.alpha :as s]))
+
+(s/def :simple-app/last-name string?)
+(s/def :simple-app/first-name string?)
+(s/def :simple-app/gender string?)
+(s/def :simple-app/favorite-color string?)
+(s/def :simple-app/date-of-birth inst?)
+
+(s/def :simple-app/record (s/keys :req-un [:simple-app/first-name
+                                           :simple-app/last-name
+                                           :simple-app/gender
+                                           :simple-app/favorite-color
+                                           :simple-app/date-of-birth]))
+#+end_src
+
+  Lets play a bit with this specs.
+
+#+begin_src clojure :ns simple-app.specs :tangle dev/scratch.clj :results output :exports both
+(s/explain :simple-app/last-name 1)
+(s/explain :simple-app/last-name "foo")
+(s/explain :simple-app/date-of-birth "1/1/1")
+(s/explain :simple-app/date-of-birth (java.util.Date.))
+(s/explain :simple-app/record {})
+(s/explain :simple-app/record {:first-name "foo"
+                               :last-name "bar"
+                               :gender "neutral"
+                               :favorite-color "chartreuse"
+                               :date-of-birth (java.util.Date.)})
+#+end_src
+
+#+RESULTS:
+#+begin_example
+1 - failed: string? spec: :simple-app/last-name
+Success!
+"1/1/1" - failed: inst? spec: :simple-app/date-of-birth
+Success!
+{} - failed: (contains? % :first-name) spec: :simple-app/record
+{} - failed: (contains? % :last-name) spec: :simple-app/record
+{} - failed: (contains? % :gender) spec: :simple-app/record
+{} - failed: (contains? % :favorite-color) spec: :simple-app/record
+{} - failed: (contains? % :date-of-birth) spec: :simple-app/record
+Success!
+#+end_example
