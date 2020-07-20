@@ -17,3 +17,58 @@
 
 (defn -main [input-file]
   (process-file-by-lines input-file record/parse))
+
+(ns simple-app.core)
+(require '[clojure.pprint :as pprint])
+(require '[clojure.spec.alpha :as s])
+(require '[simple-app.spec])
+
+(defn -main [input-file]
+  (let [data (atom [])]
+    (process-file-by-lines input-file record/parse (partial swap! data conj))
+    (prn "Validating data")
+    (s/explain :simple-app/records @data)
+    (when (s/valid? :simple-app/records @data)
+      (prn "Sorted by gender, then last-name")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name)
+                               (sort-by :gender record/by-gender)))
+      (prn "Sorted by birth-date, ascending")
+      (pprint/print-table (->> @data
+                               (sort-by :date-of-birth record/by-birth-date)))
+      (prn "Sorted by last-name, descending")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name record/by-last-name))))))
+
+(ns simple-app.core)
+(require '[clojure.walk :as walk])
+
+(defn with-formated-dates
+  "Given a data structure formats dates as `MM/dd/yyyy`"
+  [data]
+  (walk/postwalk (fn [x]
+                   (if (= (class x)
+                          java.util.Date)
+                     (.format (java.text.SimpleDateFormat. "MM/dd/yyyy") x)
+                     x))
+                 data))
+
+(defn -main [input-file]
+  (let [data (atom [])]
+    (process-file-by-lines input-file record/parse (partial swap! data conj))
+    (prn "Validating data")
+    (s/explain :simple-app/records @data)
+    (when (s/valid? :simple-app/records @data)
+      (prn "Sorted by gender, then last-name")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name)
+                               (sort-by :gender record/by-gender)
+                               (with-formated-dates)))
+      (prn "Sorted by birth-date, ascending")
+      (pprint/print-table (->> @data
+                               (sort-by :date-of-birth record/by-birth-date)
+                               (with-formated-dates)))
+      (prn "Sorted by last-name, descending")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name record/by-last-name)
+                               (with-formated-dates))))))

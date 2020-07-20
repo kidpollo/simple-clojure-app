@@ -12,3 +12,5 @@
                                            :simple-app/gender
                                            :simple-app/favorite-color
                                            :simple-app/date-of-birth]))
+
+(s/def :simple-app/records (s/coll-of :simple-app/record))

@@ -15,3 +15,15 @@
 
 (ns clojure.test)
 (run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)

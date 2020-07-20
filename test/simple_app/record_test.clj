@@ -18,3 +18,47 @@
       (is (= (record/parse comma-format) expected)))
     (testing "Space format"
       (is (= (record/parse space-format) expected)))))
+
+(ns simple-app.record-test)
+(deftest sort-tests
+  (testing "by-gender"
+    (is (= 0 (record/by-gender "female" "female"))
+        "same")
+    (is (= -1 (record/by-gender "female" "male"))
+        "female before male")
+    (is (= 1 (record/by-gender "male" "female"))
+        "male after female")
+
+    (is (= -1 (record/by-gender "female" "other"))
+        "female before other")
+    (is (= 1 (record/by-gender "other" "female"))
+        "other after female")
+
+    (is (= -1 (record/by-gender "male" "other"))
+        "male before other")
+    (is (= 1 (record/by-gender "other" "male"))
+        "other after male"))
+  (testing "birth-date"
+    (is (= 0 (record/by-birth-date (java.util.Date. "1/1/2020")
+                                   (java.util.Date. "1/1/2020")))
+        "same")
+    (is (= -1 (record/by-birth-date (java.util.Date. "1/1/2020")
+                                    (java.util.Date. "1/2/2020")))
+        "ascending")
+    (is (= 1 (record/by-birth-date (java.util.Date. "1/2/2020")
+                                   (java.util.Date. "1/1/2020")))))
+  (testing "last-name"
+    (is (= 0 (record/by-last-name "Viramontes" "Viramontes"))
+        "same")
+    (is (> 0 (record/by-last-name "Viramontes" "Jenkins"))
+        "descending")
+    (is (< 0 (record/by-last-name "Jenkins" "Viramontes")))))
+
+(ns simple-app.record-test)
+(deftest last-name-sort-case-tests
+  (testing "last-name"
+    (is (= 0 (record/by-last-name "Viramontes" "viramontes"))
+        "same")
+    (is (> 0 (record/by-last-name "Viramontes" "jenkins"))
+        "descending")
+    (is (< 0 (record/by-last-name "jenkins" "Viramontes")))))

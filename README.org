@@ -66,6 +66,8 @@ mkdir -p resources
                                            :simple-app/gender
                                            :simple-app/favorite-color
                                            :simple-app/date-of-birth]))
+
+(s/def :simple-app/records (s/coll-of :simple-app/record))
 #+end_src
 
   Lets play a bit with this specs.
@@ -232,7 +234,7 @@ SpongeBob Squarepants none? pinaple-yellow 5/1/1999
 
   We can now run a program that for now just prints each line we parse.
 
-#+BEGIN_SRC bash
+#+BEGIN_SRC bash :exports both
 clojure -m simple-app.core resources/sample-file-1
 #+END_SRC
 
@@ -240,3 +242,393 @@ clojure -m simple-app.core resources/sample-file-1
 | {:first-name foo       | :last-name bar         | :gender neutral | :favorite-color chartreuse     | 2020-01-01T08:00:00.000-00:00 |
 | {:first-name Luke      | :last-name Skywalker   | :gender male    | :favorite-color blue           | 2000-01-01T08:00:00.000-00:00 |
 | {:first-name SpongeBob | :last-name Squarepants | :gender none?   | :favorite-color pinaple-yellow | 1999-05-01T07:00:00.000-00:00 |
+
+** Data output
+
+  We actually want to output data in 3 different views.
+
+  * Output 1 – sorted by gender (females before males) then by last name ascending.
+  * Output 2 – sorted by birth date, ascending.
+  * Output 3 – sorted by last name, descending.
+
+  Since we can use the ~sort-by~ function to do the sorting we are going to
+  write tests for a comparator functions for each of our options.
+
+  Lets write some starting comparators.
+
+#+begin_src clojure :ns simple-app.record :tangle src/simple_app/record.clj :results silent
+(defn by-gender
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-birth-date
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare a b))
+#+end_src
+
+  Lest write this tests.
+
+#+begin_src clojure :ns simple-app.record-test :tangle test/simple_app/record_test.clj :results silent
+(deftest sort-tests
+  (testing "by-gender"
+    (is (= 0 (record/by-gender "female" "female"))
+        "same")
+    (is (= -1 (record/by-gender "female" "male"))
+        "female before male")
+    (is (= 1 (record/by-gender "male" "female"))
+        "male after female")
+
+    (is (= -1 (record/by-gender "female" "other"))
+        "female before other")
+    (is (= 1 (record/by-gender "other" "female"))
+        "other after female")
+
+    (is (= -1 (record/by-gender "male" "other"))
+        "male before other")
+    (is (= 1 (record/by-gender "other" "male"))
+        "other after male"))
+  (testing "birth-date"
+    (is (= 0 (record/by-birth-date (java.util.Date. "1/1/2020")
+                                   (java.util.Date. "1/1/2020")))
+        "same")
+    (is (= -1 (record/by-birth-date (java.util.Date. "1/1/2020")
+                                    (java.util.Date. "1/2/2020")))
+        "ascending")
+    (is (= 1 (record/by-birth-date (java.util.Date. "1/2/2020")
+                                   (java.util.Date. "1/1/2020")))))
+  (testing "last-name"
+    (is (= 0 (record/by-last-name "Viramontes" "Viramontes"))
+        "same")
+    (is (> 0 (record/by-last-name "Viramontes" "Jenkins"))
+        "descending")
+    (is (< 0 (record/by-last-name "Jenkins" "Viramontes")))))
+#+end_src
+
+  Lets see the initial results.
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Testing simple-app.record-test
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:6)
+by-gender
+female before male
+expected: (= -1 (record/by-gender "female" "male"))
+  actual: (not (= -1 -7))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:8)
+by-gender
+male after female
+expected: (= 1 (record/by-gender "male" "female"))
+  actual: (not (= 1 7))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:11)
+by-gender
+female before other
+expected: (= -1 (record/by-gender "female" "other"))
+  actual: (not (= -1 -9))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:13)
+by-gender
+other after female
+expected: (= 1 (record/by-gender "other" "female"))
+  actual: (not (= 1 9))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:16)
+by-gender
+male before other
+expected: (= -1 (record/by-gender "male" "other"))
+  actual: (not (= -1 -2))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:18)
+by-gender
+other after male
+expected: (= 1 (record/by-gender "other" "male"))
+  actual: (not (= 1 2))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:32)
+last-name
+descending
+expected: (> 0 (record/by-last-name "Viramontes" "Jenkins"))
+  actual: (not (> 0 12))
+
+FAIL in (sort-tests) (NO_SOURCE_FILE:34)
+last-name
+expected: (< 0 (record/by-last-name "Jenkins" "Viramontes"))
+  actual: (not (< 0 -12))
+
+Ran 2 tests containing 16 assertions.
+8 failures, 0 errors.
+#+end_example
+
+  OK lets make the tests pass. Notice the Birth date comparator already works as
+  is. We'll need a bit of logic for the gender comparator and a very simple
+  parameter swap for the last-name comparator.
+
+#+begin_src clojure :ns simple-app.record :tangle src/simple_app/record.clj :results silent
+(defn by-gender
+  "Gender comparator function"
+  [a b]
+  (cond
+    (= a b)
+    0
+    (= a "female")
+    -1
+    (= b "female")
+    1
+    (and (= a "male") (not= b "female"))
+    -1
+    (and (= b "male") (not= a "female"))
+    1))
+
+(defn by-birth-date
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare b a))
+#+end_src
+
+  Now our tests are passing.
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+: 
+: Testing simple-app.record-test
+: 
+: Ran 2 tests containing 16 assertions.
+: 0 failures, 0 errors.
+
+  Lets put it all together in our main entrypoint.
+
+#+begin_src clojure :ns simple-app.core :tangle src/simple_app/core.clj :results silent
+(require '[clojure.pprint :as pprint])
+(require '[clojure.spec.alpha :as s])
+(require '[simple-app.spec])
+
+(defn -main [input-file]
+  (let [data (atom [])]
+    (process-file-by-lines input-file record/parse (partial swap! data conj))
+    (prn "Validating data")
+    (s/explain :simple-app/records @data)
+    (when (s/valid? :simple-app/records @data)
+      (prn "Sorted by gender, then last-name")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name)
+                               (sort-by :gender record/by-gender)))
+      (prn "Sorted by birth-date, ascending")
+      (pprint/print-table (->> @data
+                               (sort-by :date-of-birth record/by-birth-date)))
+      (prn "Sorted by last-name, descending")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name record/by-last-name))))))
+
+#+end_src
+
+  We need a more interesting sample input file now
+ 
+#+begin_src text :tangle resources/sample-file-2 :results silent :eval no
+boo | far | female | chartreuse | 1/1/2020
+foo | bar | female | chartreuse | 1/1/2020
+Luke | Skywalker | male | blue | 1/1/2000
+SpongeBob | Squarepants | wat? | pinaple-yellow 5/3/1999
+Rey | Palpatine | female | yellow | 1/1/2034
+#+end_src
+
+#+BEGIN_SRC bash :results output :exports both
+clojure -m simple-app.core resources/sample-file-2
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+"Validating data"
+Success!
+"Sorted by gender, then last-name"
+
+| :first-name |  :last-name | :gender | :favorite-color |               :date-of-birth |
+|-------------+-------------+---------+-----------------+------------------------------|
+|         Rey |   Palpatine |  female |          yellow | Sun Jan 01 00:00:00 PST 2034 |
+|         foo |         bar |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|         boo |         far |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|        Luke |   Skywalker |    male |            blue | Sat Jan 01 00:00:00 PST 2000 |
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow | Mon May 03 00:00:00 PDT 1999 |
+"Sorted by birth-date, ascending"
+
+| :first-name |  :last-name | :gender | :favorite-color |               :date-of-birth |
+|-------------+-------------+---------+-----------------+------------------------------|
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow | Mon May 03 00:00:00 PDT 1999 |
+|        Luke |   Skywalker |    male |            blue | Sat Jan 01 00:00:00 PST 2000 |
+|         boo |         far |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|         foo |         bar |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|         Rey |   Palpatine |  female |          yellow | Sun Jan 01 00:00:00 PST 2034 |
+"Sorted by last-name, descending"
+
+| :first-name |  :last-name | :gender | :favorite-color |               :date-of-birth |
+|-------------+-------------+---------+-----------------+------------------------------|
+|         boo |         far |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|         foo |         bar |  female |      chartreuse | Wed Jan 01 00:00:00 PST 2020 |
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow | Mon May 03 00:00:00 PDT 1999 |
+|        Luke |   Skywalker |    male |            blue | Sat Jan 01 00:00:00 PST 2000 |
+|         Rey |   Palpatine |  female |          yellow | Sun Jan 01 00:00:00 PST 2034 |
+#+end_example
+
+  Oh shoot! Something does not look right with the last-name ordering. It turns
+  out Clojure sort uses ASCII character ordering to compare strings. Thats
+  something I did not know. Anyway lets fix it and write a test for it.
+
+#+begin_src clojure :ns simple-app.record-test :tangle test/simple_app/record_test.clj :results silent
+(deftest last-name-sort-case-tests
+  (testing "last-name"
+    (is (= 0 (record/by-last-name "Viramontes" "viramontes"))
+        "same")
+    (is (> 0 (record/by-last-name "Viramontes" "jenkins"))
+        "descending")
+    (is (< 0 (record/by-last-name "jenkins" "Viramontes")))))
+#+end_src
+
+  Lets see the initial results.
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Testing simple-app.record-test
+
+FAIL in (last-name-sort-case-tests) (NO_SOURCE_FILE:4)
+last-name
+same
+expected: (= 0 (record/by-last-name "Viramontes" "viramontes"))
+  actual: (not (= 0 32))
+
+FAIL in (last-name-sort-case-tests) (NO_SOURCE_FILE:6)
+last-name
+descending
+expected: (> 0 (record/by-last-name "Viramontes" "jenkins"))
+  actual: (not (> 0 20))
+
+FAIL in (last-name-sort-case-tests) (NO_SOURCE_FILE:8)
+last-name
+expected: (< 0 (record/by-last-name "jenkins" "Viramontes"))
+  actual: (not (< 0 -20))
+
+Ran 3 tests containing 19 assertions.
+3 failures, 0 errors.
+#+end_example
+
+  Lets fix the damn thing.
+
+#+begin_src clojure :ns simple-app.record :tangle src/simple_app/record.clj :results silent
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare (str/upper-case b) (str/upper-case a)))
+#+end_src
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+: 
+: Testing simple-app.record-test
+: 
+: Ran 3 tests containing 19 assertions.
+: 0 failures, 0 errors.
+
+  Oh! and we need to display the dates in ~M/D/YYYY~ format.
+
+#+begin_src clojure :ns simple-app.core :tangle src/simple_app/core.clj :results silent
+(require '[clojure.walk :as walk])
+
+(defn with-formated-dates
+  "Given a data structure formats dates as `MM/dd/yyyy`"
+  [data]
+  (walk/postwalk (fn [x]
+                   (if (= (class x)
+                          java.util.Date)
+                     (.format (java.text.SimpleDateFormat. "MM/dd/yyyy") x)
+                     x))
+                 data))
+
+(defn -main [input-file]
+  (let [data (atom [])]
+    (process-file-by-lines input-file record/parse (partial swap! data conj))
+    (prn "Validating data")
+    (s/explain :simple-app/records @data)
+    (when (s/valid? :simple-app/records @data)
+      (prn "Sorted by gender, then last-name")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name)
+                               (sort-by :gender record/by-gender)
+                               (with-formated-dates)))
+      (prn "Sorted by birth-date, ascending")
+      (pprint/print-table (->> @data
+                               (sort-by :date-of-birth record/by-birth-date)
+                               (with-formated-dates)))
+      (prn "Sorted by last-name, descending")
+      (pprint/print-table (->> @data
+                               (sort-by :last-name record/by-last-name)
+                               (with-formated-dates))))))
+#+end_src
+
+#+BEGIN_SRC bash :results output :exports both
+clojure -m simple-app.core resources/sample-file-2
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+"Validating data"
+Success!
+"Sorted by gender, then last-name"
+
+| :first-name |  :last-name | :gender | :favorite-color | :date-of-birth |
+|-------------+-------------+---------+-----------------+----------------|
+|         Rey |   Palpatine |  female |          yellow |     01/01/2034 |
+|         foo |         bar |  female |      chartreuse |     01/01/2020 |
+|         boo |         far |  female |      chartreuse |     01/01/2020 |
+|        Luke |   Skywalker |    male |            blue |     01/01/2000 |
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow |     05/03/1999 |
+"Sorted by birth-date, ascending"
+
+| :first-name |  :last-name | :gender | :favorite-color | :date-of-birth |
+|-------------+-------------+---------+-----------------+----------------|
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow |     05/03/1999 |
+|        Luke |   Skywalker |    male |            blue |     01/01/2000 |
+|         boo |         far |  female |      chartreuse |     01/01/2020 |
+|         foo |         bar |  female |      chartreuse |     01/01/2020 |
+|         Rey |   Palpatine |  female |          yellow |     01/01/2034 |
+"Sorted by last-name, descending"
+
+| :first-name |  :last-name | :gender | :favorite-color | :date-of-birth |
+|-------------+-------------+---------+-----------------+----------------|
+|   SpongeBob | Squarepants |    wat? |  pinaple-yellow |     05/03/1999 |
+|        Luke |   Skywalker |    male |            blue |     01/01/2000 |
+|         Rey |   Palpatine |  female |          yellow |     01/01/2034 |
+|         boo |         far |  female |      chartreuse |     01/01/2020 |
+|         foo |         bar |  female |      chartreuse |     01/01/2020 |
+#+end_example
+
+  NOTE: I tried using ~pprint/with-pprint-dispatch~ but it was not possible as
+  the ~pprint/print-table~ function first converts data to strings to calculate
+  the column widths.

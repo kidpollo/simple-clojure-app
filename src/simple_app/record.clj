@@ -17,3 +17,51 @@
   (-> (zipmap [:first-name :last-name :gender :favorite-color :date-of-birth]
               (str/split line #",\s+|\s+\|\s+|\s+"))
       (update :date-of-birth #(java.util.Date. %))))
+
+(ns simple-app.record)
+(defn by-gender
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-birth-date
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare a b))
+
+(ns simple-app.record)
+(defn by-gender
+  "Gender comparator function"
+  [a b]
+  (cond
+    (= a b)
+    0
+    (= a "female")
+    -1
+    (= b "female")
+    1
+    (and (= a "male") (not= b "female"))
+    -1
+    (and (= b "male") (not= a "female"))
+    1))
+
+(defn by-birth-date
+  "Gender comparator function"
+  [a b]
+  (compare a b))
+
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare b a))
+
+(ns simple-app.record)
+(defn by-last-name
+  "Last Name comparator function"
+  [a b]
+  (compare (str/upper-case b) (str/upper-case a)))
