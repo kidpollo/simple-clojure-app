@@ -48,8 +48,8 @@ mkdir -p resources
 
 ** The data model
 
-  I like to start with data modeling and design desitions as early as possible.
-  For this app we are goint ro handle records of a simple shape but its still
+  I like to start with data modeling and design decisions as early as possible.
+  For this app we are goint to handle records of a simple shape but its still
   worth having clojure specs to validate data going through any system.
 
 #+begin_src clojure :tangle src/simple_app/spec.clj :results silent
@@ -638,9 +638,9 @@ Success!
 ** REST service
 
    Now we are going to write a simple rest service to access the data in the
-   system. We are goind to use an ~atom~ as mock for our persistent storage.
+   system. We are going to use an ~atom~ as mock for our persistent storage.
    
-   Since creatint a rest service is moslty boilerplate code and our core
+   Since creating a rest service is mostly boilerplate code and our core
    "business logic" is already tested I am going to put the whole service in one
    go.
    
@@ -763,7 +763,7 @@ Success!
 #+end_src
   
   While there is definitely value to having unit tests for some of the above
-  functions, in this case, since it is a slimple application we are going to do
+  functions, in this case, since it is a simple application we are going to do
   some interactive validation for now. In fact, with clojure its sometimes
   easier to explore code interactively, specially if one is learning. I usually
   factor our tests for posterity once I ironed out the kinks and feel more
@@ -1086,7 +1086,7 @@ clojure.lang.ExceptionInfo: java.lang.IllegalArgumentException in Interceptor :r
   (start))
 #+end_src
 
-  We can now start the sistem interactively.
+  We can now start the system interactively.
 
 #+begin_src clojure :ns simple-app.system :tangle dev/scratch.clj :results output :wrap :exports both
 (stop)
