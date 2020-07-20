@@ -648,7 +648,6 @@ Success!
 (ns simple-app.record-service
   (:require [clojure.data.json :as json]
             [clojure.walk :as walk]
-            [io.pedestal.http :as http]
             [io.pedestal.http.route :as route]
             [io.pedestal.test :as test]
             [simple-app.record :as record]))
@@ -761,14 +760,6 @@ Success!
   (route/expand-routes
    #{["/records" :post [coerce-body db-interceptor record-create]]
      ["/records/:sort-by" :get [coerce-body record-render db-interceptor list-view]]}))
-
-(def service-map
-  {::http/routes routes
-   ::http/type   :jetty
-   ::http/port   8880})
-
-(defn start []
-  (http/start (http/create-server service-map)))
 #+end_src
   
   While there is definitely value to having unit tests for some of the above
@@ -779,13 +770,16 @@ Success!
   confortable with my knowkedge of using a new library.
 
 #+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :exports both
+(require '[io.pedestal.http :as http])
 (defonce server (atom nil))
 
 (defn start-dev []
   (reset! server
           (http/start (http/create-server
-                       (assoc service-map
-                              ::http/join? false)))))
+                       {::http/routes service/routes
+                        ::http/type   :jetty
+                        ::http/port   8890
+                        ::http/join? false}))))
 
 (defn stop-dev []
   (http/stop @server))
@@ -1050,3 +1044,126 @@ clojure.lang.ExceptionInfo: java.lang.IllegalArgumentException in Interceptor :r
   "object-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:;",
   "Content-Type":"application\/json"}}
 #+end_src
+
+** Putting a bow on it.
+
+  In a production system I would use integrant to describe the system and handle
+  its state. In this case it would be total overkill as there is only one real
+  component to the system. So we'll do the "poor mans" system for this example.
+
+#+begin_src clojure :tangle src/simple_app/system.clj :results silent
+(ns simple-app.system
+  (:require [io.pedestal.http :as http]
+            [simple-app.record-service :as service]
+            [simple-app.record :as record]
+            [simple-app.core :as core]))
+
+(def system nil)
+
+(def service-map
+  {::http/routes service/routes
+   ::http/type   :jetty
+   ::http/port   8080
+   ::http/join?  false})
+
+(defn stop
+  "Stops the app and clears the database"
+  []
+  (when system
+    (http/stop (:app system)))
+  (reset! service/database [])
+  (alter-var-root #'system (constantly nil)))
+
+(defn start
+  "Resets the app database and starts the app with default database"
+  []
+  (core/process-file-by-lines "resources/sample-file-2" record/parse (partial swap! service/database conj))
+  (alter-var-root #'system
+                  merge
+                  {:app (http/start (http/create-server service-map))}))
+
+(defn -main []
+  (start))
+#+end_src
+
+  We can now start the sistem interactively.
+
+#+begin_src clojure :ns simple-app.system :tangle dev/scratch.clj :results output :wrap :exports both
+(stop)
+(start)
+#+end_src
+
+#+RESULTS:
+#+begin_results
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.AbstractConnector - Stopped ServerConnector@4c9cd3de{HTTP/1.1,[http/1.1, h2c]}{localhost:8080}
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.handler.ContextHandler - Stopped o.e.j.s.ServletContextHandler@5219c85b{/,null,UNAVAILABLE}
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.Server - jetty-9.4.18.v20190429; built: 2019-04-29T20:42:08.989Z; git: e1bc35120a6617ee3df052294e433f3a25ce7097; jvm 14.0.2+12
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.handler.ContextHandler - Started o.e.j.s.ServletContextHandler@6a6897af{/,null,AVAILABLE}
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.AbstractConnector - Started ServerConnector@32b843ab{HTTP/1.1,[http/1.1, h2c]}{localhost:8080}
+[nREPL-session-efdbcfae-92d8-4944-b5b4-81ffda35cdb8] INFO org.eclipse.jetty.server.Server - Started @24943ms
+#+end_results
+
+  Or with thie command line.
+
+#+BEGIN_SRC bash :exports both
+clojure -m simple-app.system
+#+END_SRC
+
+  Lets curl it.
+
+#+BEGIN_SRC bash :exports both :results output :wrap src json
+curl -X GET http://localhost:8080/records/gender | jq .
+#+END_SRC
+
+#+RESULTS:
+#+begin_src json
+[
+  {
+    "first-name": "boo",
+    "last-name": "far",
+    "gender": "female",
+    "favorite-color": "chartreuse",
+    "date-of-birth": "01/01/2020"
+  },
+  {
+    "first-name": "foo",
+    "last-name": "bar",
+    "gender": "female",
+    "favorite-color": "chartreuse",
+    "date-of-birth": "01/01/2020"
+  },
+  {
+    "first-name": "Rey",
+    "last-name": "Palpatine",
+    "gender": "female",
+    "favorite-color": "yellow",
+    "date-of-birth": "01/01/2034"
+  },
+  {
+    "first-name": "Luke",
+    "last-name": "Skywalker",
+    "gender": "male",
+    "favorite-color": "blue",
+    "date-of-birth": "01/01/2000"
+  },
+  {
+    "first-name": "SpongeBob",
+    "last-name": "Squarepants",
+    "gender": "wat?",
+    "favorite-color": "pinaple-yellow",
+    "date-of-birth": "05/03/1999"
+  }
+]
+#+end_src
+
+  Profit!
+
+** Final comments on Pedestal.
+
+  It was refreshing to try out Pedestal. I was surprised by the amount of things
+  Pedestal forces you to define to do a simple rest interface. It is nice that
+  it provides facilities to do interactive development and its less "magical"
+  than Ring. I do see the potential that it has for larger APIs as its design
+  forces you to keep concerns separated and more unit-like. Even a super simple
+  application with two endpoints ended up being a lot of boilerplate but that
+  gives you a ton of flexibility to grow the API in a sane way.

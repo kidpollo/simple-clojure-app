@@ -29,13 +29,16 @@
 (run-tests 'simple-app.record-test)
 
 (ns simple-app.record-service)
+(require '[io.pedestal.http :as http])
 (defonce server (atom nil))
 
 (defn start-dev []
   (reset! server
           (http/start (http/create-server
-                       (assoc service-map
-                              ::http/join? false)))))
+                       {::http/routes service/routes
+                        ::http/type   :jetty
+                        ::http/port   8890
+                        ::http/join? false}))))
 
 (defn stop-dev []
   (http/stop @server))
@@ -101,3 +104,7 @@
 (json/pprint (test-request :post "/records"
                            :headers {"Content-Type" "text/plain"}
                            :body ""))
+
+(ns simple-app.system)
+(stop)
+(start)

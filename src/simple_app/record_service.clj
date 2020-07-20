@@ -1,7 +1,6 @@
 (ns simple-app.record-service
   (:require [clojure.data.json :as json]
             [clojure.walk :as walk]
-            [io.pedestal.http :as http]
             [io.pedestal.http.route :as route]
             [io.pedestal.test :as test]
             [simple-app.record :as record]))
@@ -114,11 +113,3 @@
   (route/expand-routes
    #{["/records" :post [coerce-body db-interceptor record-create]]
      ["/records/:sort-by" :get [coerce-body record-render db-interceptor list-view]]}))
-
-(def service-map
-  {::http/routes routes
-   ::http/type   :jetty
-   ::http/port   8880})
-
-(defn start []
-  (http/start (http/create-server service-map)))
