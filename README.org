@@ -24,6 +24,7 @@ mkdir -p resources
 #+begin_src clojure :tangle deps.edn :results silent :eval no
 {:deps
  {org.clojure/clojure {:mvn/version "1.10.1"}
+  org.clojure/data.json {:mvn/version "1.0.0"}
   io.pedestal/pedestal.service {:mvn/version "0.5.7"}
   io.pedestal/pedestal.route {:mvn/version "0.5.7"}
   io.pedestal/pedestal.jetty {:mvn/version "0.5.7"}
@@ -449,7 +450,7 @@ Ran 2 tests containing 16 assertions.
 boo | far | female | chartreuse | 1/1/2020
 foo | bar | female | chartreuse | 1/1/2020
 Luke | Skywalker | male | blue | 1/1/2000
-SpongeBob | Squarepants | wat? | pinaple-yellow 5/3/1999
+SpongeBob | Squarepants | wat? | pinaple-yellow | 5/3/1999
 Rey | Palpatine | female | yellow | 1/1/2034
 #+end_src
 
@@ -632,3 +633,420 @@ Success!
   NOTE: I tried using ~pprint/with-pprint-dispatch~ but it was not possible as
   the ~pprint/print-table~ function first converts data to strings to calculate
   the column widths.
+
+  
+** REST service
+
+   Now we are going to write a simple rest service to access the data in the
+   system. We are goind to use an ~atom~ as mock for our persistent storage.
+   
+   Since creatint a rest service is moslty boilerplate code and our core
+   "business logic" is already tested I am going to put the whole service in one
+   go.
+   
+#+begin_src clojure :tangle src/simple_app/record_service.clj :results silent
+(ns simple-app.record-service
+  (:require [clojure.data.json :as json]
+            [clojure.walk :as walk]
+            [io.pedestal.http :as http]
+            [io.pedestal.http.route :as route]
+            [io.pedestal.test :as test]
+            [simple-app.record :as record]))
+
+(defn response [status body & {:as headers}]
+  {:status status :body body :headers headers})
+
+(def ok (partial response 200))
+(def created (partial response 201))
+(def bad-request (partial response 400))
+;;;
+;;; "Database" functions
+;;;
+(defonce database (atom []))
+
+(defn record-insert
+  [dbval new-record]
+  (conj dbval new-record))
+
+(def db-interceptor
+  {:name :database-interceptor
+   :enter
+   (fn [context]
+     (update context :request assoc :database @database))
+   :leave
+   (fn [context]
+     (if-let [[op & args] (:tx-data context)]
+       (do
+         (apply swap! database op args)
+         (assoc-in context [:request :database] @database))
+       context))})
+
+;;;
+;;; Domain functions
+;;;
+(defn parse-record [unparsed-record]
+  (when (string? unparsed-record)
+    (record/parse unparsed-record)))
+
+(defn sorted-records
+  [data sort-by-param]
+  (case sort-by-param
+    "name"
+    (sort-by :last-name record/by-last-name data)
+    "gender"
+    (sort-by :gender record/by-gender data)
+    "birthdate"
+    (sort-by :date-of-birth record/by-birth-date data)
+    nil))
+
+(defn with-formated-dates
+  "Given a data structure formats dates as `MM/dd/yyyy`"
+  [data]
+  (walk/postwalk (fn [x]
+                   (if (= (class x)
+                          java.util.Date)
+                     (.format (java.text.SimpleDateFormat. "MM/dd/yyyy") x)
+                     x))
+                 data))
+
+(defn record->json [data]
+  (json/write-str (with-formated-dates data)))
+
+(defn transform-to-json
+  [response]
+  (-> response
+      (update :body record->json)
+      (assoc-in [:headers "Content-Type"] "application/json")))
+;;;
+;;; API Interceptors
+;;;
+(def record-render
+  {:name :record-render
+   :leave
+   (fn [context]
+     (if-let [item (:result context)]
+       (assoc context :response (ok item))
+       context))})
+
+(def record-create
+  {:name :record-create
+   :enter
+   (fn [context]
+     (let [body-stream (get-in context [:request :body])
+           unparsed-record (slurp body-stream)
+           new-record (parse-record unparsed-record)]
+       (if new-record
+         (-> context
+             (assoc :tx-data [record-insert new-record])
+             (assoc :response (created new-record)))
+         (assoc context :response (bad-request "invalid record")))))})
+
+(def list-view
+  {:name :list-view
+   :enter
+   (fn [context]
+     (if-let [sort-by-param (get-in context [:request :path-params :sort-by])]
+       (if-let [records (sorted-records (get-in context [:request :database]) sort-by-param)]
+         (assoc context :result records)
+         context)
+       context))})
+
+(def coerce-body
+  {:name ::coerce-body
+   :leave
+   (fn [context]
+     (update-in context [:response] transform-to-json))})
+
+(def routes
+  (route/expand-routes
+   #{["/records" :post [coerce-body db-interceptor record-create]]
+     ["/records/:sort-by" :get [coerce-body record-render db-interceptor list-view]]}))
+
+(def service-map
+  {::http/routes routes
+   ::http/type   :jetty
+   ::http/port   8880})
+
+(defn start []
+  (http/start (http/create-server service-map)))
+#+end_src
+  
+  While there is definitely value to having unit tests for some of the above
+  functions, in this case, since it is a slimple application we are going to do
+  some interactive validation for now. In fact, with clojure its sometimes
+  easier to explore code interactively, specially if one is learning. I usually
+  factor our tests for posterity once I ironed out the kinks and feel more
+  confortable with my knowkedge of using a new library.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :exports both
+(defonce server (atom nil))
+
+(defn start-dev []
+  (reset! server
+          (http/start (http/create-server
+                       (assoc service-map
+                              ::http/join? false)))))
+
+(defn stop-dev []
+  (http/stop @server))
+
+(defn restart []
+  (stop-dev)
+  (start-dev))
+
+(defn test-request [& params]
+  (apply (partial test/response-for (::http/service-fn @server)) params))
+
+(start-dev)
+#+end_src
+
+#+RESULTS:
+: [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO org.eclipse.jetty.util.log - Logging initialized @68726ms to org.eclipse.jetty.util.log.Slf4jLog
+: [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO org.eclipse.jetty.server.Server - jetty-9.4.18.v20190429; built: 2019-04-29T20:42:08.989Z; git: e1bc35120a6617ee3df052294e433f3a25ce7097; jvm 14.0.2+12
+: [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO org.eclipse.jetty.server.handler.ContextHandler - Started o.e.j.s.ServletContextHandler@3e2f78b3{/,null,AVAILABLE}
+: [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO org.eclipse.jetty.server.AbstractConnector - Started ServerConnector@60d6ef6b{HTTP/1.1,[http/1.1, h2c]}{localhost:8880}
+: [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO org.eclipse.jetty.server.Server - Started @68856ms
+
+  Lets write one valid entry to our database. Notice the response returns the
+  JSON version of the parsed data.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :wrap src json :exports both
+(-> (test-request :post "/records"
+                  :headers {"Content-Type" "text/plain"}
+                  :body "boo | far | female | chartreuse | 1/1/2020")
+    :body
+    json/read-str
+    json/pprint)
+#+end_src
+
+#+RESULTS:
+#+begin_src json
+{"first-name":"boo",
+ "last-name":"far",
+ "gender":"female",
+ "favorite-color":"chartreuse",
+ "date-of-birth":"01\/01\/2020"}
+#+end_src
+
+  Now lets list that entry sorted by name. Noticed we now get that one entry
+  inside of a list.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :wrap src json :exports both
+(-> (test-request :get "/records/name")
+    :body
+    json/read-str
+    json/pprint)
+#+end_src
+
+#+RESULTS:
+#+begin_src json
+[{"first-name":"boo",
+  "last-name":"far",
+  "gender":"female",
+  "favorite-color":"chartreuse",
+  "date-of-birth":"01\/01\/2020"}]
+#+end_src
+
+  Lets load our database as we had done before. We'll clear the data fist.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results silent
+(require '[simple-app.core :as core])
+(require '[simple-app.record :as record])
+(reset! database [])
+(core/process-file-by-lines "resources/sample-file-2" record/parse (partial swap! database conj))
+#+end_src
+
+  Now lets see them sorted by gender. We can see the ordering is correct. 
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :wrap src json :exports both
+(-> (test-request :get "/records/gender")
+    :body
+    json/read-str
+    json/pprint)
+#+end_src
+
+#+RESULTS:
+#+begin_src json
+[{"first-name":"boo",
+  "last-name":"far",
+  "gender":"female",
+  "favorite-color":"chartreuse",
+  "date-of-birth":"01\/01\/2020"},
+ {"first-name":"foo",
+  "last-name":"bar",
+  "gender":"female",
+  "favorite-color":"chartreuse",
+  "date-of-birth":"01\/01\/2020"},
+ {"first-name":"Rey",
+  "last-name":"Palpatine",
+  "gender":"female",
+  "favorite-color":"yellow",
+  "date-of-birth":"01\/01\/2034"},
+ {"first-name":"Luke",
+  "last-name":"Skywalker",
+  "gender":"male",
+  "favorite-color":"blue",
+  "date-of-birth":"01\/01\/2000"},
+ {"first-name":"SpongeBob",
+  "last-name":"Squarepants",
+  "gender":"wat?",
+  "favorite-color":"pinaple-yellow",
+  "date-of-birth":"05\/03\/1999"}]
+#+end_src
+
+  For good measure lets see the ordering by birthdate.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :wrap src json :exports both
+(-> (test-request :get "/records/birthdate")
+    :body
+    json/read-str
+    json/pprint)
+#+end_src
+
+#+RESULTS:
+#+begin_src json
+[{"first-name":"SpongeBob",
+  "last-name":"Squarepants",
+  "gender":"wat?",
+  "favorite-color":"pinaple-yellow",
+  "date-of-birth":"05\/03\/1999"},
+ {"first-name":"Luke",
+  "last-name":"Skywalker",
+  "gender":"male",
+  "favorite-color":"blue",
+  "date-of-birth":"01\/01\/2000"},
+ {"first-name":"boo",
+  "last-name":"far",
+  "gender":"female",
+  "favorite-color":"chartreuse",
+  "date-of-birth":"01\/01\/2020"},
+ {"first-name":"foo",
+  "last-name":"bar",
+  "gender":"female",
+  "favorite-color":"chartreuse",
+  "date-of-birth":"01\/01\/2020"},
+ {"first-name":"Rey",
+  "last-name":"Palpatine",
+  "gender":"female",
+  "favorite-color":"yellow",
+  "date-of-birth":"01\/01\/2034"}]
+#+end_src
+
+  Lets make sure our list routes are correct.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :exports both
+(println (test-request :get "/records"))
+(println (test-request :get "/records/"))
+(println (test-request :get "/records/other"))
+#+end_src
+
+#+RESULTS:
+: {:status 404, :body Not Found, :headers {Content-Type text/plain}}
+: {:status 404, :body Not Found, :headers {Content-Type text/plain}}
+: {:status 404, :body Not Found, :headers {Content-Type text/plain}}
+
+  What about posting bad data.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :exports both
+(test-request :post "/records"
+              :headers {"Content-Type" "text/plain"}
+              :body "")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO io.pedestal.http - {:msg "POST /records", :line 80}
+[nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] ERROR io.pedestal.http.impl.servlet-interceptor - {:msg "error-ring-response triggered", :context {:io.pedestal.interceptor.chain/stack (#Interceptor{:name :io.pedestal.http.impl.servlet-interceptor/stylobate} #Interceptor{:name :io.pedestal.http.impl.servlet-interceptor/terminator-injector}), :request {:protocol "HTTP/1.1", :async-supported? true, :remote-addr "127.0.0.1", :servlet-response #object[io.pedestal.test$test_servlet_response$reify__22288 0x41bb9cf8 "io.pedestal.test$test_servlet_response$reify__22288@41bb9cf8"], :servlet #object[io.pedestal.http.servlet.FnServlet 0xb0a1e67 "io.pedestal.http.servlet.FnServlet@b0a1e67"], :headers {"content-type" "text/plain", "content-length" "0"}, :server-port -1, :servlet-request #object[io.pedestal.test$test_servlet_request$reify__22276 0x3c41dee3 "io.pedestal.test$test_servlet_request$reify__22276@3c41dee3"], :content-length 0, :content-type "text/plain", :path-info "/records", :character-encoding "UTF-8", :database [{:first-name "boo", :last-name "far", :gender "female", :favorite-color "chartreuse", :date-of-birth #inst "2020-01-01T08:00:00.000-00:00"} {:first-name "foo", :last-name "bar", :gender "female", :favorite-color "chartreuse", :date-of-birth #inst "2020-01-01T08:00:00.000-00:00"} {:first-name "Luke", :last-name "Skywalker", :gender "male", :favorite-color "blue", :date-of-birth #inst "2000-01-01T08:00:00.000-00:00"} {:first-name "SpongeBob", :last-name "Squarepants", :gender "wat?", :favorite-color "pinaple-yellow", :date-of-birth #inst "1999-05-03T07:00:00.000-00:00"} {:first-name "Rey", :last-name "Palpatine", :gender "female", :favorite-color "yellow", :date-of-birth #inst "2034-01-01T08:00:00.000-00:00"}], :url-for #delay[{:status :pending, :val nil} 0x41cbc430], :uri "/records", :server-name nil, :query-string nil, :path-params {}, :body #object[io.pedestal.test.proxy$javax.servlet.ServletInputStream$ff19274a 0x5c0accad "io.pedestal.test.proxy$javax.servlet.ServletInputStream$ff19274a@5c0accad"], :scheme nil, :request-method :post, :context-path ""}, :bindings {#'io.pedestal.http.route/*url-for* #delay[{:status :pending, :val nil} 0x41cbc430]}, :enter-async [#function[io.pedestal.http.impl.servlet-interceptor/start-servlet-async]], :io.pedestal.interceptor.chain/terminators (#function[io.pedestal.http.impl.servlet-interceptor/terminator-inject/fn--22015]), :servlet-response #object[io.pedestal.test$test_servlet_response$reify__22288 0x41bb9cf8 "io.pedestal.test$test_servlet_response$reify__22288@41bb9cf8"], :route {:path "/records", :method :post, :path-re #"/\Qrecords\E", :path-parts ["records"], :interceptors [#Interceptor{:name :simple-app.record-service/coerce-body} #Interceptor{:name :database-interceptor} #Interceptor{:name :record-create}], :route-name :record-create, :path-params {}, :io.pedestal.http.route.prefix-tree/satisfies-constraints? #function[clojure.core/constantly/fn--5672]}, :servlet #object[io.pedestal.http.servlet.FnServlet 0xb0a1e67 "io.pedestal.http.servlet.FnServlet@b0a1e67"], :servlet-request #object[io.pedestal.test$test_servlet_request$reify__22276 0x3c41dee3 "io.pedestal.test$test_servlet_request$reify__22276@3c41dee3"], :url-for #delay[{:status :pending, :val nil} 0x41cbc430], :io.pedestal.interceptor.chain/execution-id 80, :servlet-config nil, :async? #function[io.pedestal.http.impl.servlet-interceptor/servlet-async?]}, :line 253}
+clojure.lang.ExceptionInfo: java.lang.IllegalArgumentException in Interceptor :record-create -  {:execution-id 80, :stage :enter, :interceptor :record-create, :exception-type :java.lang.IllegalArgumentException, :exception #error {
+ :cause nil
+ :via
+ [{:type java.lang.IllegalArgumentException
+   :message nil
+   :at [java.util.Date parse "Date.java" 617]}]
+ :trace {{ommited}}
+ [nREPL-session-891a1df0-453c-440d-9973-2c97f12a17f8] INFO io.pedestal.http.impl.servlet-interceptor - {:msg "sending error", :message "Internal server error: exception", :line 215}
+#+end_example
+
+  AHA! we found an issue! Seems that our date parsing function blows up when it
+  gets nil data. We'll need to guard against that. Lets add to our parse tests.
+
+ #+begin_src clojure :ns simple-app.record-test :tangle test/simple_app/record_test.clj :results silent
+(deftest handle-bad-data-test
+  (let [expected nil
+        bad-date "foo | bar | neutral | chartreuse | foo"
+        empty-data ""
+        weird-data "klj;a f``jsaldkf asld kflask dfjl;kasdl;kfjaslkdfjl;kasd  aslk jflk;a sdl;kfjs"]
+
+    (testing "Bad date"
+      (is (= (record/parse bad-date) expected)))
+    (testing "Empty data"
+      (is (= (record/parse empty-data) expected)))
+    (testing "Wat?"
+      (is (= (record/parse weird-data) expected)))))
+#+end_src
+ 
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results value :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+: nil{:test 2, :pass 3, :fail 0, :error 3, :type :summary}
+
+  Lets add guarding against bad data by taking advantage of out specs :D
+
+#+begin_src clojure :ns simple-app.record :tangle src/simple_app/record.clj :results silent
+(require '[clojure.string :as str])
+(require '[clojure.spec.alpha :as s])
+(require '[simple-app.spec])
+
+(defn parse
+  "Parses input line into a record entry map.
+  Handles 3 different input formats.
+    - Comma separated
+    - Pipe separated
+    - Space separated"
+  [line]
+  (let [validate (fn [entry]
+                   (when (s/valid? :simple-app/record entry) entry))]
+    (-> (zipmap [:first-name :last-name :gender :favorite-color :date-of-birth]
+                (str/split line #",\s+|\s+\|\s+|\s+"))
+        (update :date-of-birth #(try (java.util.Date. %) (catch Exception _ nil)))
+        (validate))))
+#+end_src
+
+  Tests are passing now :D
+
+#+begin_src clojure :ns clojure.test :tangle dev/scratch.clj :results output :exports both
+(run-tests 'simple-app.record-test)
+#+end_src
+
+#+RESULTS:
+: 
+: Testing simple-app.record-test
+: 
+: Ran 2 tests containing 6 assertions.
+: 0 failures, 0 errors.
+
+  Now we can see that we get a 400 from the API as expected.
+
+#+begin_src clojure :ns simple-app.record-service :tangle dev/scratch.clj :results output :wrap src json  :exports both
+(json/pprint (test-request :post "/records"
+                           :headers {"Content-Type" "text/plain"}
+                           :body ""))
+#+end_src
+
+#+RESULTS:
+#+begin_src json
+{"status":400,
+ "body":"\"invalid record\"",
+ "headers":
+ {"Strict-Transport-Security":"max-age=31536000; includeSubdomains",
+  "X-Frame-Options":"DENY",
+  "X-Content-Type-Options":"nosniff",
+  "X-XSS-Protection":"1; mode=block",
+  "X-Download-Options":"noopen",
+  "X-Permitted-Cross-Domain-Policies":"none",
+  "Content-Security-Policy":
+  "object-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:;",
+  "Content-Type":"application\/json"}}
+#+end_src

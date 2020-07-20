@@ -65,3 +65,22 @@
   "Last Name comparator function"
   [a b]
   (compare (str/upper-case b) (str/upper-case a)))
+
+(ns simple-app.record)
+(require '[clojure.string :as str])
+(require '[clojure.spec.alpha :as s])
+(require '[simple-app.spec])
+
+(defn parse
+  "Parses input line into a record entry map.
+  Handles 3 different input formats.
+    - Comma separated
+    - Pipe separated
+    - Space separated"
+  [line]
+  (let [validate (fn [entry]
+                   (when (s/valid? :simple-app/record entry) entry))]
+    (-> (zipmap [:first-name :last-name :gender :favorite-color :date-of-birth]
+                (str/split line #",\s+|\s+\|\s+|\s+"))
+        (update :date-of-birth #(try (java.util.Date. %) (catch Exception _ nil)))
+        (validate))))

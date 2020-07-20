@@ -27,3 +27,77 @@
 
 (ns clojure.test)
 (run-tests 'simple-app.record-test)
+
+(ns simple-app.record-service)
+(defonce server (atom nil))
+
+(defn start-dev []
+  (reset! server
+          (http/start (http/create-server
+                       (assoc service-map
+                              ::http/join? false)))))
+
+(defn stop-dev []
+  (http/stop @server))
+
+(defn restart []
+  (stop-dev)
+  (start-dev))
+
+(defn test-request [& params]
+  (apply (partial test/response-for (::http/service-fn @server)) params))
+
+(start-dev)
+
+(ns simple-app.record-service)
+(-> (test-request :post "/records"
+                  :headers {"Content-Type" "text/plain"}
+                  :body "boo | far | female | chartreuse | 1/1/2020")
+    :body
+    json/read-str
+    json/pprint)
+
+(ns simple-app.record-service)
+(-> (test-request :get "/records/name")
+    :body
+    json/read-str
+    json/pprint)
+
+(ns simple-app.record-service)
+(require '[simple-app.core :as core])
+(require '[simple-app.record :as record])
+(reset! database [])
+(core/process-file-by-lines "resources/sample-file-2" record/parse (partial swap! database conj))
+
+(ns simple-app.record-service)
+(-> (test-request :get "/records/gender")
+    :body
+    json/read-str
+    json/pprint)
+
+(ns simple-app.record-service)
+(-> (test-request :get "/records/birthdate")
+    :body
+    json/read-str
+    json/pprint)
+
+(ns simple-app.record-service)
+(println (test-request :get "/records"))
+(println (test-request :get "/records/"))
+(println (test-request :get "/records/other"))
+
+(ns simple-app.record-service)
+(test-request :post "/records"
+              :headers {"Content-Type" "text/plain"}
+              :body "")
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns clojure.test)
+(run-tests 'simple-app.record-test)
+
+(ns simple-app.record-service)
+(json/pprint (test-request :post "/records"
+                           :headers {"Content-Type" "text/plain"}
+                           :body ""))

@@ -62,3 +62,17 @@
     (is (> 0 (record/by-last-name "Viramontes" "jenkins"))
         "descending")
     (is (< 0 (record/by-last-name "jenkins" "Viramontes")))))
+
+(ns simple-app.record-test)
+(deftest handle-bad-data-test
+  (let [expected nil
+        bad-date "foo | bar | neutral | chartreuse | foo"
+        empty-data ""
+        weird-data "klj;a f``jsaldkf asld kflask dfjl;kasdl;kfjaslkdfjl;kasd  aslk jflk;a sdl;kfjs"]
+
+    (testing "Bad date"
+      (is (= (record/parse bad-date) expected)))
+    (testing "Empty data"
+      (is (= (record/parse empty-data) expected)))
+    (testing "Wat?"
+      (is (= (record/parse weird-data) expected)))))
